@@ -1,3 +1,7 @@
+# NOTE
+This repository is a work in progress. The scripts within are not complete.
+
+
 # Setup
 Set up a virtual environment and activate it. Set the working directory to gnnchemo.
 
