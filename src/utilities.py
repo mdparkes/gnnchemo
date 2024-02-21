@@ -23,7 +23,7 @@ def map_indices_to_names(nodes: NodeInfoDict) -> Dict[int, str]:
     """Create a dictionary of node names keyed by integer index values"""
     return dict(zip(range(len(nodes)), nodes.keys()))
 
-
+# TODO modify this function so that it loads and processes the drug data instead of survival data
 def load_expression_and_clinical_data(exprs_file: str, clin_file: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     print("Loading and processing gene expression and clinical data", end="... ", flush=True)
     exprs_data = pd.read_csv(exprs_file, index_col=0)
