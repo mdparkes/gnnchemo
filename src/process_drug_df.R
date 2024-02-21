@@ -223,7 +223,7 @@ sel_cols <- c("project", "aliquot_submitter_id", "drug_name", "drug_type_2",
               "alkylating_agent", "antimetabolite", "antimitotic",
               "topoisomerase_inhibitor", "other_drug", "measure_of_response")
 obj_out <- drug_df[ ,sel_cols]
-write.csv(obj_out, file = file_out)
+write.csv(obj_out, file = file_out, row.names = F)
 
 # Notes: ####
 # "Partial Response" tends to be rare. There
