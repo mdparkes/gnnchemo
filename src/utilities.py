@@ -23,33 +23,14 @@ def map_indices_to_names(nodes: NodeInfoDict) -> Dict[int, str]:
     """Create a dictionary of node names keyed by integer index values"""
     return dict(zip(range(len(nodes)), nodes.keys()))
 
-# TODO modify this function so that it loads and processes the drug data instead of survival data
+
 def load_expression_and_clinical_data(exprs_file: str, clin_file: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     print("Loading and processing gene expression and clinical data", end="... ", flush=True)
     exprs_data = pd.read_csv(exprs_file, index_col=0)
-    clin_data = pd.read_csv(
-        clin_file,
-        encoding="windows-1252",
-        index_col="aliquot_submitter_id",
-        na_values=["[Not Applicable]", "[Completed]", "[Discrepancy]", "[Not Available]", "'--"],
-        usecols=["aliquot_submitter_id", "bcr_patient_barcode", "acronym", "gender", "days_to_collection",
-                 "days_to_birth", "vital_status", "days_to_death", "days_to_last_followup"]
-    )
+    clin_data = pd.read_csv(clin_file, index_col="aliquot_submitter_id")
 
     # Process clinical data
-    clin_data = clin_data.loc[exprs_data.index, :]  # Make sure the order of the rows match
-    clin_data["age_at_dx"] = np.floor(np.abs(clin_data["days_to_birth"]) / 365)
-    clin_data.drop("days_to_birth", axis=1, inplace=True)
-    clin_data["days_to_last_known_alive"] = clin_data.days_to_death.fillna(clin_data.days_to_last_followup)
-    clin_data.loc[clin_data["vital_status"] == "Alive", "vital_status"] = 0
-    clin_data.loc[clin_data["vital_status"] == "Dead", "vital_status"] = 1
-    # GBM and STAD have NaN vital status. Record a 0 in vital status if days to last followup is known. If days to death
-    # is known, record 1, even if days to followup was also given (we prefer 1 over 0)
-    clin_data.loc[clin_data["vital_status"].isnull() & clin_data["days_to_last_followup"].notnull(), "vital_status"] = 0
-    clin_data.loc[clin_data["vital_status"].isnull() & clin_data["days_to_death"].notnull(), "vital_status"] = 1
-    # Exclude biopsies from patients with null vital status or negative event/censoring times
-    sel_samples = (clin_data["vital_status"].notnull()) & (clin_data["days_to_last_known_alive"] >= 0.)
-    clin_data = clin_data[sel_samples]
+    clin_data = clin_data.replace({True: 1, False: 0, "Positive response": 1, "Minimal response": 0})
 
     # Process expression data
     exprs_data = exprs_data.loc[clin_data.index, :]  # Filter exprs_data according to what remains in clin_data
