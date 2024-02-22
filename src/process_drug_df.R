@@ -1,6 +1,6 @@
 project_dir <- "/Users/pr3/Projects/gnnchemo"
 # Load cleaned data from csv
-file_in <- paste0(project_dir, "/data/big_drug_df.csv")
+file_in <- paste0(project_dir, "/data/drug_df.csv")
 drug_df <- read.csv(file_in)[ ,-1]
 # Tabulate response, drug class
 table(drug_df$drug_type, drug_df$measure_of_response,

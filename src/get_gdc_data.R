@@ -77,5 +77,4 @@ tcga_types <- c(
 
 drug_data_list <- lapply(tcga_types, get_drug_data)
 drug_df <- as.data.frame(do.call(rbind, drug_data_list))
-write.csv(drug_df, "/Users/pr3/Projects/gnnchemo/data/big_drug_df.csv")
-# write.csv(drug_df, "/Users/pr3/Projects/gnnchemo/data/drug_df.csv", sep = ",")
+write.csv(drug_df, "/Users/pr3/Projects/gnnchemo/data/drug_df.csv")
