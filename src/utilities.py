@@ -24,42 +24,6 @@ def map_indices_to_names(nodes: NodeInfoDict) -> Dict[int, str]:
     return dict(zip(range(len(nodes)), nodes.keys()))
 
 
-def load_expression_and_clinical_data(exprs_file: str, clin_file: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    print("Loading and processing gene expression and clinical data", end="... ", flush=True)
-    exprs_data = pd.read_csv(exprs_file, index_col=0)
-    clin_data = pd.read_csv(clin_file, index_col="aliquot_submitter_id")
-
-    # Process clinical data
-    clin_data = clin_data.replace({True: 1, False: 0, "Positive response": 1, "Minimal response": 0})
-
-    # Process expression data
-    exprs_data = exprs_data.loc[clin_data.index, :]  # Filter exprs_data according to what remains in clin_data
-    # There are some samples with NaN values for certain genes; these will be dealt with later on a per-cancer basis
-    exprs_data = np.log1p(exprs_data)
-    print("Done", flush=True)
-
-    # Save mappings of feature names to KEGG hsa IDs, ENTREZ IDs, and gene symbols
-    print("Creating a mapping of feature names to KEGG hsa IDs, ENTREZ IDs, and gene symbols", end="... ", flush=True)
-    orig_feat_names = exprs_data.columns
-    reg_exp1 = re.compile(r"^[^|]+")  # Match gene symbol
-    reg_exp2 = re.compile(r"(?<=\|)\d+")  # Match ENTREZ ID
-    gene_symbols = [reg_exp1.search(string).group(0) for string in orig_feat_names]
-    entrez_ids = [reg_exp2.search(string).group(0) for string in orig_feat_names]
-    kegg_ids = [f"hsa{entrez}" for entrez in entrez_ids]
-    feature_map = pd.DataFrame({
-        "original": orig_feat_names,
-        "entrez": entrez_ids,
-        "symbol": gene_symbols,
-        "kegg": kegg_ids
-    })
-    feature_map.to_csv("data/feature_map.csv", index_label=False)
-    new_names = dict(zip(orig_feat_names, kegg_ids))
-    exprs_data.rename(columns=new_names, inplace=True)  # Replace original names with KEGG IDs
-    print("Done", flush=True)
-
-    return exprs_data, clin_data
-
-
 def filter_datasets_and_graph_info(
         exprs_df: pd.DataFrame, node_info: NodeInfoDict, edge_info: AdjacencyDict, pathway_info: NodeInfoDict,
         min_nodes: int = 15
