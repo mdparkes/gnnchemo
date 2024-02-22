@@ -27,13 +27,18 @@ def main():
     clin_data = pd.read_csv(clin_path, index_col="aliquot_submitter_id")
     print("Done", flush=True)
 
-    print("Cleaning up data", end="... ", flush=True)
+    print("Cleaning up data and log-normalizing gene expression", end="... ", flush=True)
     exprs_data = exprs_data.transpose()
     clin_data = clin_data[clin_data.index.isin(exprs_data.index)]  # Use clinical data that have expression data
     exprs_data = exprs_data[exprs_data.index.isin(clin_data.index)]  # Use expression data that have clinical data
     exprs_data = exprs_data.loc[clin_data.index, :]  # Make sure the order of the rows match
     # There may be biopsies with NaN values for certain genes; these will be dealt with later
     exprs_data = np.log1p(exprs_data)  # Log-transform the expression data
+    exprs_data["project"] = clin_data["project"]
+    # Standardize each gene's expression values across biopsies from patients with the same cancer type
+    exprs_data.groupby("project").transform(lambda x: (x - x.mean()) / x.std())
+    exprs_data = exprs_data.drop("project", axis=1)
+    exprs_data = exprs_data.dropna(axis=1)  # Drop 4191 genes with missing values
     print("Done", flush=True)
 
     # Save mappings of feature names to KEGG hsa IDs, ENTREZ IDs, and gene symbols
