@@ -29,6 +29,13 @@ FILE_URL=http://api.gdc.cancer.gov/data/3586c0da-64d0-4b74-a449-5ff4d9136611
 curl -o $ROOT_DIR/gnnchemo/data/tcga_exprs.tsv $FILE_URL
 ```
 
+# Notes
+The file `data/processed_drug_df.csv` contains the fully preprocessed drug data for modeling. The files 
+`src/get_gdc_data.R` and `src/process_drug_df.R` are only included for reference and should not be run. Manual data 
+processing steps were performed between scraping the data with `src/get_gdc_data.R` and writing the final 
+preprocessed file with `src/process_drug_df.R`
+
+
 ## Troubleshooting
 
 If conda is slow to solve the environment, try setting the channel priority to strict:
