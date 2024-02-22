@@ -23,10 +23,11 @@ Install `keggpathwaygraphs` and other required libraries in the virtual environm
 pip install git+https://github.com/mdparkes/keggpathwaygraphs.git
 pip install -r $ROOT_DIR/gnnchemo/requirements.txt
 ```
-Download TCGA gene expression data to the data directory:
+Download TCGA gene expression data to the data directory and clean the data:
 ```bash
 FILE_URL=https://api.gdc.cancer.gov/data/3586c0da-64d0-4b74-a449-5ff4d9136611
 curl $FILE_URL -o $ROOT_DIR/gnnchemo/data/tcga_exprs.tsv
+python3 src/process_data.py data/tcga_exprs.tsv data/processed_drug_df.csv
 ```
 
 # Notes
