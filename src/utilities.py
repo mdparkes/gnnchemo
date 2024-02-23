@@ -1,3 +1,5 @@
+
+
 import itertools
 import numpy as np
 import os
@@ -24,42 +26,6 @@ def map_indices_to_names(nodes: NodeInfoDict) -> Dict[int, str]:
     return dict(zip(range(len(nodes)), nodes.keys()))
 
 
-def load_expression_and_clinical_data(exprs_file: str, clin_file: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    print("Loading and processing gene expression and clinical data", end="... ", flush=True)
-    exprs_data = pd.read_csv(exprs_file, index_col=0)
-    clin_data = pd.read_csv(clin_file, index_col="aliquot_submitter_id")
-
-    # Process clinical data
-    clin_data = clin_data.replace({True: 1, False: 0, "Positive response": 1, "Minimal response": 0})
-
-    # Process expression data
-    exprs_data = exprs_data.loc[clin_data.index, :]  # Filter exprs_data according to what remains in clin_data
-    # There are some samples with NaN values for certain genes; these will be dealt with later on a per-cancer basis
-    exprs_data = np.log1p(exprs_data)
-    print("Done", flush=True)
-
-    # Save mappings of feature names to KEGG hsa IDs, ENTREZ IDs, and gene symbols
-    print("Creating a mapping of feature names to KEGG hsa IDs, ENTREZ IDs, and gene symbols", end="... ", flush=True)
-    orig_feat_names = exprs_data.columns
-    reg_exp1 = re.compile(r"^[^|]+")  # Match gene symbol
-    reg_exp2 = re.compile(r"(?<=\|)\d+")  # Match ENTREZ ID
-    gene_symbols = [reg_exp1.search(string).group(0) for string in orig_feat_names]
-    entrez_ids = [reg_exp2.search(string).group(0) for string in orig_feat_names]
-    kegg_ids = [f"hsa{entrez}" for entrez in entrez_ids]
-    feature_map = pd.DataFrame({
-        "original": orig_feat_names,
-        "entrez": entrez_ids,
-        "symbol": gene_symbols,
-        "kegg": kegg_ids
-    })
-    feature_map.to_csv("data/feature_map.csv", index_label=False)
-    new_names = dict(zip(orig_feat_names, kegg_ids))
-    exprs_data.rename(columns=new_names, inplace=True)  # Replace original names with KEGG IDs
-    print("Done", flush=True)
-
-    return exprs_data, clin_data
-
-
 def filter_datasets_and_graph_info(
         exprs_df: pd.DataFrame, node_info: NodeInfoDict, edge_info: AdjacencyDict, pathway_info: NodeInfoDict,
         min_nodes: int = 15
@@ -67,9 +33,9 @@ def filter_datasets_and_graph_info(
     """
     Given a gene expression DataFrame, a NodeInfoDict and AdjacencyDict for a graph whose nodes represent genes in a
     pathway, a NodeInfoDict whose nodes represent the pathways themselves, and a minimum number of nodes per
-    pathway, this function removes zero-expression genes (nodes) from the expression DataFrame and gene graph,
-    and also genes that only appear in pathways with fewer than the specified minimum number of nodes. Those pathways
-    are also removed from the pathway NodeInfoDict.
+    pathway, this function removes genes (nodes) from the graph if they do not appear in exprs_df,
+    and also removes genes from exprs_df that only appear in pathways with fewer than the specified minimum number of
+    nodes. Those pathways are also removed from the pathway NodeInfoDict.
 
     When nodes are removed from `node_info`, edges that have the removed nodes as their source in edge_info are also
     removed. A new edge is formed between the target node and any node that had the removed node as its target. For
@@ -88,12 +54,11 @@ def filter_datasets_and_graph_info(
     :param min_nodes: The minimum number of nodes that a pathway must have in order to survive filtering
     :return: Returns the filtered input objects
     """
-    # Remove genes from node_info and edge_info if they either don't appear in exprs_df or have zero expression
-    # across all biopsies in exprs_df. Create edges between parents and children of the removed nodes in edge_info.
+    # Remove genes from node_info and edge_info if they either don't appear in exprs_df. Create edges between parents
+    # and children of the removed nodes in edge_info.
     for_removal = [gene for gene in node_info.keys() if gene not in exprs_df.columns]
     for gene in for_removal:
         node_info, edge_info = bpg.remove_node(gene, node_info, edge_info)
-    node_info, edge_info = remove_zero_exprs(exprs_df, node_info, edge_info)
     # Restrict the members of each pathway to genes in node_info
     pathway_info = bpg.update_children(pathway_info, set(node_info.keys()))
     # Exclude pathways with < min_nodes nodes and create a set of nodes that appear in any of the remaining pathways
@@ -104,7 +69,7 @@ def filter_datasets_and_graph_info(
         children = info["children"]
         if len(children) < min_nodes:
             continue
-        new_pathway_info[path] = info
+        new_pathway_info[path] = info  # Append pathway to new_pathway_info if it has at least min_nodes
         remaining_nodes = remaining_nodes.union(children)  # Update remaining nodes
     # Form a list of nodes that are not in any of the remaining pathways
     if len(remaining_nodes) > 0:
@@ -113,9 +78,9 @@ def filter_datasets_and_graph_info(
             node_info, edge_info = bpg.remove_node(gene, node_info, edge_info)
         # Restrict exprs_df to genes that remain in node_info. exprs_df has its columns (genes) ordered to match the
         # order of the keys in node_info
-        all_features = exprs_df.columns.to_numpy()  # All features in exprs_data; still contains zero-expression genes
-        sel_features = [list(all_features).index(gene) for gene in node_info.keys()]  # non-zero exprs indices
-        feature_names = all_features[sel_features]  # Final features to use
+        all_features = exprs_df.columns.to_numpy()  # All genes in exprs_data
+        sel_features = [list(all_features).index(gene) for gene in node_info.keys()]  # Indices of genes to keep
+        feature_names = all_features[sel_features]  # Final genes to use
         exprs_df = exprs_df.loc[:, feature_names]  # Match the order of keys in node_info
     else:
         # There are no remaining nodes because all pathways were eliminated, so node_info, edge_info, and exprs_df
@@ -125,18 +90,6 @@ def filter_datasets_and_graph_info(
         exprs_df = exprs_df.loc[:, []]  # Empty DataFrame
 
     return exprs_df, node_info, edge_info, new_pathway_info
-
-
-def remove_zero_exprs(
-        data: pd.DataFrame, nodes: NodeInfoDict, adjacency: AdjacencyDict
-) -> Tuple[NodeInfoDict, AdjacencyDict]:
-    """Remove genes with no detectable counts in all biopsies"""
-    sel_zero_exprs = data.sum(axis=1) == 0
-    zero_exprs = data[sel_zero_exprs].index
-    for target in zero_exprs:
-        nodes, adjacency = bpg.remove_node(target, nodes, adjacency)
-    return nodes, adjacency
-
 
 
 def make_assignment_matrix(
