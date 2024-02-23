@@ -15,10 +15,12 @@ because the KEGG BRITE orthology contains four levels of hierarchically related 
 placeholders for the first items in the tuple ensures that downstream code can be used for BRITE or Reactome graphs
 with minimal modifications.
 """
+
 import argparse
 import os
 import pandas as pd
 import pickle
+import re
 import tempfile
 
 from tqdm import tqdm
@@ -153,18 +155,6 @@ def main():
              "called \"pathways\" that holds text files listing edges for each individual Reactome pathway.",
         default="data/Pathway"
     )
-    parser.add_argument(
-        "--directed",
-        help="If set, only create a graph from directed edges. Otherwise, include both directed and undirected edges.",
-        dest="directed", action="store_true"
-    )
-    parser.add_argument(
-        "--merge_pathways",
-        help="If set, this script will create NodeInfoDict and AdjacencyDict objects for a graph that contains all "
-             "Reactome pathways as subgraphs. If this flag is not set, the default behavior is to create separate "
-             "NodeInfoDict and AdjacencyDict objects for each Reactome pathway.",
-        action="store_true"
-    )
     # endregion Parse args
 
     args = vars(parser.parse_args())
@@ -176,17 +166,21 @@ def main():
     brite_graph_file = os.path.join(args["data_dir"], "brite_graph.pkl")
     feature_map_file = os.path.join(args["data_dir"], "feature_map.csv")
 
-    merge_pathways = True if args["merge_pathways"] else False
+    # Check for the existence of necessary files
+    if not os.path.exists(brite_graph_file):
+        raise FileNotFoundError(f"{brite_graph_file} not found. Run the following command to scrape BRITE orthology "
+                                f"data: `python3 -m keggpathwaygraphs.create_graph --output_dir data`")
 
-    directed = True if args["directed"] else False
-    direction = "directed" if directed else "undirected"
-
-    feat_map = pd.read_csv(feature_map_file)
+    if not os.path.exists(feature_map_file):
+        raise FileNotFoundError(f"{feature_map_file} not found. Run src/process_data.py to create the feature map.")
 
     # Get the node information dictionary that was created from BRITE
     with open(brite_graph_file, "rb") as file_in:
         brite_graph = pickle.load(file_in)
     brite_d_dict = brite_graph[3][0]
+
+    # Load the feature map
+    feat_map = pd.read_csv(feature_map_file)
 
     # Create the pathway dictionary -- Selected pathways used by Liang et al. This is only used when training
     # models that feeds all pathway graphs into the model at the same time as a single large graph. Keep track of
@@ -212,20 +206,21 @@ def main():
 
     # Create gene-level NodeInfoDict and AdjacencyDict for a graph merged from all pathways. This information will
     # be used to create MLP input tensors regardless of whether the GNN survival models use merged graphs as input.
-
+    #
     # Write the edge data for all pathways into a single temporary file and then read it into memory as a DataFrame
     tmp = tempfile.NamedTemporaryFile("w", delete=False)
     try:
         tmp.write("src_type\tsrc\tdest_type\tdest\tdirection\ttype\n")
         for file in pathway_files:
-            if file.strip(".txt") not in pathways_used:  # Only use pathways selected by Liang et al.
+            pathway_name = re.sub(r"\.txt", "", file)
+            if pathway_name not in pathways_used:  # Only use pathways selected by Liang et al.
                 continue
             abs_file_path = os.path.abspath(os.path.join(pathway_subdir, file))
             lines_in = (line for line in open(abs_file_path, "r"))
             next(iter(lines_in))  # Skip the column headers
             for line in lines_in:
                 tmp.write(line)
-        df = format_pathway_dataframe(pd.read_table(tmp.name), directed)
+        df = format_pathway_dataframe(pd.read_table(tmp.name), directed=True)
     finally:
         tmp.close()
         os.unlink(tmp.name)
@@ -238,31 +233,29 @@ def main():
     level_c = (level_c_dict, dict())
     level_d = (node_dict, edge_dict)
     graph_info = (level_a, level_b, level_c, level_d)
-    file_name = f"reactome_graph_{direction}.pkl"
+    file_name = f"reactome_graph_directed.pkl"
     path_out = os.path.join(args["data_dir"], file_name)
     with open(path_out, "wb") as file_out:
         pickle.dump(graph_info, file_out)
 
-    # If the GNN survival models are to take individual pathway graphs as input, one (NodeInfoDict, AdjacencyDict)
-    # per pathway must be written to disk.
-    if not merge_pathways:
-        # Make a subdirectory that houses the NodeInfoDict objects for individual Reactome pathway graphs
-        output_dir = os.path.join(pathway_subdir, "dicts")
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        # Create NodeInfoDict and AdjacencyDict objects for each individual Reactome pathway graph
-        for file in pathway_files:
-            if file.strip(".txt") not in pathways_used:
-                continue  # Skip subdirectories and pathways not used by Liang et al.
-            abs_file_path = os.path.abspath(os.path.join(pathway_subdir, file))
-            df = format_pathway_dataframe(pd.read_table(abs_file_path), directed)
-            node_dict, edge_dict = create_reactome_graph_info(df, feature_map=feat_map, node_info=brite_d_dict)
-            graph_info = (node_dict, edge_dict)
-            file_name = f"{file.strip('.txt')}_{direction}.pkl"
-            path_out = os.path.join(output_dir, file_name)
-            # Write to disk
-            with open(path_out, "wb") as file_out:
-                pickle.dump(graph_info, file_out)
+    # Make a subdirectory that houses the NodeInfoDict objects for individual Reactome pathway graphs
+    output_dir = os.path.join(pathway_subdir, "dicts")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    # Create NodeInfoDict and AdjacencyDict objects for each individual Reactome pathway graph
+    for file in pathway_files:
+        pathway_name = re.sub(r"\.txt", "", file)
+        if pathway_name not in pathways_used:
+            continue  # Skip subdirectories and pathways not used by Liang et al.
+        abs_file_path = os.path.abspath(os.path.join(pathway_subdir, file))
+        df = format_pathway_dataframe(pd.read_table(abs_file_path), directed=True)
+        node_dict, edge_dict = create_reactome_graph_info(df, feature_map=feat_map, node_info=brite_d_dict)
+        graph_info = (node_dict, edge_dict)
+        file_name = f"{pathway_name}_directed.pkl"
+        path_out = os.path.join(output_dir, file_name)
+        # Write to disk
+        with open(path_out, "wb") as file_out:
+            pickle.dump(graph_info, file_out)
 
 
 if __name__=="__main__":
