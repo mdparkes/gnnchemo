@@ -14,7 +14,7 @@ from sklearn.model_selection import train_test_split
 from torch import Tensor
 from torch_geometric.data import Data
 from tqdm import tqdm
-from typing import Dict, Tuple
+from typing import Dict
 
 from custom_data_types import AdjacencyDict
 from utilities import filter_datasets_and_graph_info, list_source_and_target_indices, map_indices_to_names
@@ -66,7 +66,7 @@ def main():
         default="data/tcga_exprs.csv"
     )
     parser.add_argument(
-        "-c", "--drug_file",
+        "-d", "--drug_file",
         help="The path to the csv file containing the drug data",
         default="data/processed_drug_df.csv"
     )
@@ -80,19 +80,12 @@ def main():
     args = vars(parser.parse_args())
     # endregion Parse command line args
 
-    # For interactive debugging
-    # args = {
-    #     "output_dir": "data",
-    #     "exprs_file": "data/tcga_exprs.csv",
-    #     "drug_file": "data/processed_drug_df.csv",
-    # }
-
     data_dir = args["output_dir"]
     exprs_file = args["exprs_file"]  # File: Gene expression data
     drug_file = args["drug_file"]  # File: Drug response data
     graph_info_file = os.path.join(data_dir, "reactome_graph_directed.pkl")  # File: Reactome graph data
-    feature_names_file = os.path.join(data_dir, "feature_names.pkl")  # File: KEGG IDs of genes used in graphs
-    pathway_names_file = os.path.join(data_dir, "pathway_names.npy")  # File: Pathway IDs represented by graphs
+    feature_names_file = os.path.join(data_dir, "gnn_feature_names.pkl")  # File: KEGG IDs of genes used in graphs
+    pathway_names_file = os.path.join(data_dir, "gnn_pathway_names.npy")  # File: Pathway IDs represented by graphs
 
     # Check for necessary files and directories
     if not os.path.exists(graph_info_file):
@@ -145,7 +138,7 @@ def main():
         index_name_map = map_indices_to_names(level_d_dict)
         edge_index_tensor = make_edge_set_tensor("relation", level_d_adj, index_name_map, is_relational=False)
         for j, pt_id in enumerate(path_exprs_ss.index):
-            node_tensor = torch.reshape(torch.tensor(path_exprs_ss.iloc[j].to_list()), shape=(-1, 1))
+            node_tensor = torch.reshape(torch.tensor(path_exprs_ss.iloc[j].tolist()), shape=(-1, 1))
             graph_obj = Data(x=node_tensor.float(), edge_index=edge_index_tensor)
             # graph_obj["drugs_administered"] = torch.tensor(drugs_administered.iloc[j].to_list(), dtype=torch.float32)
             # graph_obj["drug_response"] = torch.tensor(drug_response.iat[j], dtype=torch.uint8)
@@ -166,35 +159,35 @@ def main():
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     # Records are Tuple[Tuple[List[graph], drugs], response]
-    for pt_id, graphs in tmp_data_dict.items():
-        drugs = torch.tensor(drugs_administered.loc[pt_id], dtype=torch.float32)
-        response = torch.tensor(drug_response.loc[pt_id], dtype=torch.uint8)
+    for j, pt_id, graphs in enumerate(tmp_data_dict.items()):
+        drugs = torch.tensor(drugs_administered.loc[pt_id].tolist(), dtype=torch.float32)
+        response = torch.tensor(drug_response.iat[j], dtype=torch.uint8)
         record = ((graphs, drugs), response)
         file_out = os.path.join(output_dir, f"{pt_id}.pt")
         torch.save(record, file_out)
     print("Done")
     # endregion Create the graph information dictionaries
 
-    # Assign each combination of drug therapies and responses to a numbered stratum. Each combination of bits
-    # observed in drugs_administered is represented as a barcode string. The observed unique combinations of drug
-    # barcodes with responses are the strata for balancing that data splits.
-    strata = pd.concat([drugs_administered, drug_response], axis=1).values.tolist()
-    strata_strings = [''.join(str(bit) for bit in x) for x in strata]
-    strata = list(set(strata_strings))
-    strata_by_barcode = dict(zip(strata, range(len(strata))))
-    stratum = [strata_by_barcode[key] for key in strata_strings]
-    stratum = pd.Series(data=stratum, index=drugs_administered.index)
-    # Stratified train_test_split() requires at least two members per stratum, but some strata have only one member.
-    # Create a new stratum numbered -1 and reassign strata with only one member to this new stratum.
-    counts = stratum.value_counts()
-    singletons = counts[counts == 1].index.tolist()
-    sel = stratum.isin(singletons)
-    stratum.iloc[sel] = -1
-
     # Three-way train/val/test split stratified on drug response and drugs administered
     path_out = os.path.join(data_dir, "train_test_split_names.pkl")
     if not os.path.exists(path_out):
         print("Indexing training, validation, and test splits", end="... ", flush=True)
+        # Assign each combination of drug therapies and responses to a numbered stratum. Each combination of bits
+        # observed in drugs_administered is represented as a barcode string. The observed unique combinations of drug
+        # barcodes with responses are the strata for balancing that data splits.
+        strata = pd.concat([drugs_administered, drug_response], axis=1).values.tolist()
+        strata_strings = [''.join(str(bit) for bit in x) for x in strata]
+        strata = list(set(strata_strings))
+        strata_by_barcode = dict(zip(strata, range(len(strata))))
+        stratum = [strata_by_barcode[key] for key in strata_strings]
+        stratum = pd.Series(data=stratum, index=drugs_administered.index)
+        # Stratified train_test_split() requires at least two members per stratum, but some strata have only one member.
+        # Create a new stratum numbered -1 and reassign strata with only one member to this new stratum.
+        counts = stratum.value_counts()
+        singletons = counts[counts == 1].index.tolist()
+        sel = stratum.isin(singletons)
+        stratum.iloc[sel] = -1
+        # Make splits
         bx_names = stratum.index.tolist()
         bx_names, test_names = train_test_split(bx_names, test_size=0.2, random_state=423, shuffle=True,
                                                 stratify=stratum)
