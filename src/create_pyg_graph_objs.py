@@ -84,8 +84,8 @@ def main():
     exprs_file = args["exprs_file"]  # File: Gene expression data
     drug_file = args["drug_file"]  # File: Drug response data
     graph_info_file = os.path.join(data_dir, "reactome_graph_directed.pkl")  # File: Reactome graph data
-    feature_names_file = os.path.join(data_dir, "feature_names.pkl")  # File: KEGG IDs of genes used in graphs
-    pathway_names_file = os.path.join(data_dir, "pathway_names.npy")  # File: Pathway IDs represented by graphs
+    feature_names_file = os.path.join(data_dir, "gnn_feature_names.pkl")  # File: KEGG IDs of genes used in graphs
+    pathway_names_file = os.path.join(data_dir, "gnn_pathway_names.npy")  # File: Pathway IDs represented by graphs
 
     # Check for necessary files and directories
     if not os.path.exists(graph_info_file):
