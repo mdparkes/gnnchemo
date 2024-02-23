@@ -43,13 +43,6 @@ def main():
     args = vars(parser.parse_args())
     # endregion Parse command line args
 
-    # For interactive debugging
-    # args = {
-    #     "output_dir": "data",
-    #     "exprs_file": "data/tcga_exprs.csv",
-    #     "drug_file": "data/tcga_clin.csv",
-    # }
-
     output_dir = args["output_dir"]
     exprs_file = args["exprs_file"]
     drug_file = args["drug_file"]
