@@ -168,26 +168,26 @@ def main():
     print("Done")
     # endregion Create the graph information dictionaries
 
-    # Assign each combination of drug therapies and responses to a numbered stratum. Each combination of bits
-    # observed in drugs_administered is represented as a barcode string. The observed unique combinations of drug
-    # barcodes with responses are the strata for balancing that data splits.
-    strata = pd.concat([drugs_administered, drug_response], axis=1).values.tolist()
-    strata_strings = [''.join(str(bit) for bit in x) for x in strata]
-    strata = list(set(strata_strings))
-    strata_by_barcode = dict(zip(strata, range(len(strata))))
-    stratum = [strata_by_barcode[key] for key in strata_strings]
-    stratum = pd.Series(data=stratum, index=drugs_administered.index)
-    # Stratified train_test_split() requires at least two members per stratum, but some strata have only one member.
-    # Create a new stratum numbered -1 and reassign strata with only one member to this new stratum.
-    counts = stratum.value_counts()
-    singletons = counts[counts == 1].index.tolist()
-    sel = stratum.isin(singletons)
-    stratum.iloc[sel] = -1
-
     # Three-way train/val/test split stratified on drug response and drugs administered
     path_out = os.path.join(data_dir, "train_test_split_names.pkl")
     if not os.path.exists(path_out):
         print("Indexing training, validation, and test splits", end="... ", flush=True)
+        # Assign each combination of drug therapies and responses to a numbered stratum. Each combination of bits
+        # observed in drugs_administered is represented as a barcode string. The observed unique combinations of drug
+        # barcodes with responses are the strata for balancing that data splits.
+        strata = pd.concat([drugs_administered, drug_response], axis=1).values.tolist()
+        strata_strings = [''.join(str(bit) for bit in x) for x in strata]
+        strata = list(set(strata_strings))
+        strata_by_barcode = dict(zip(strata, range(len(strata))))
+        stratum = [strata_by_barcode[key] for key in strata_strings]
+        stratum = pd.Series(data=stratum, index=drugs_administered.index)
+        # Stratified train_test_split() requires at least two members per stratum, but some strata have only one member.
+        # Create a new stratum numbered -1 and reassign strata with only one member to this new stratum.
+        counts = stratum.value_counts()
+        singletons = counts[counts == 1].index.tolist()
+        sel = stratum.isin(singletons)
+        stratum.iloc[sel] = -1
+        # Make splits
         bx_names = stratum.index.tolist()
         bx_names, test_names = train_test_split(bx_names, test_size=0.2, random_state=423, shuffle=True,
                                                 stratify=stratum)
