@@ -14,7 +14,7 @@ from sklearn.model_selection import train_test_split
 from torch import Tensor
 from torch_geometric.data import Data
 from tqdm import tqdm
-from typing import Dict, Tuple
+from typing import Dict
 
 from custom_data_types import AdjacencyDict
 from utilities import filter_datasets_and_graph_info, list_source_and_target_indices, map_indices_to_names
@@ -66,7 +66,7 @@ def main():
         default="data/tcga_exprs.csv"
     )
     parser.add_argument(
-        "-c", "--drug_file",
+        "-d", "--drug_file",
         help="The path to the csv file containing the drug data",
         default="data/processed_drug_df.csv"
     )
@@ -79,13 +79,6 @@ def main():
     )
     args = vars(parser.parse_args())
     # endregion Parse command line args
-
-    # For interactive debugging
-    # args = {
-    #     "output_dir": "data",
-    #     "exprs_file": "data/tcga_exprs.csv",
-    #     "drug_file": "data/processed_drug_df.csv",
-    # }
 
     data_dir = args["output_dir"]
     exprs_file = args["exprs_file"]  # File: Gene expression data
@@ -145,7 +138,7 @@ def main():
         index_name_map = map_indices_to_names(level_d_dict)
         edge_index_tensor = make_edge_set_tensor("relation", level_d_adj, index_name_map, is_relational=False)
         for j, pt_id in enumerate(path_exprs_ss.index):
-            node_tensor = torch.reshape(torch.tensor(path_exprs_ss.iloc[j].to_list()), shape=(-1, 1))
+            node_tensor = torch.reshape(torch.tensor(path_exprs_ss.iloc[j].tolist()), shape=(-1, 1))
             graph_obj = Data(x=node_tensor.float(), edge_index=edge_index_tensor)
             # graph_obj["drugs_administered"] = torch.tensor(drugs_administered.iloc[j].to_list(), dtype=torch.float32)
             # graph_obj["drug_response"] = torch.tensor(drug_response.iat[j], dtype=torch.uint8)
@@ -167,8 +160,8 @@ def main():
         os.makedirs(output_dir)
     # Records are Tuple[Tuple[List[graph], drugs], response]
     for pt_id, graphs in tmp_data_dict.items():
-        drugs = torch.tensor(drugs_administered.loc[pt_id], dtype=torch.float32)
-        response = torch.tensor(drug_response.loc[pt_id], dtype=torch.uint8)
+        drugs = torch.tensor(drugs_administered.loc[pt_id].tolist(), dtype=torch.float32)
+        response = torch.tensor(drug_response.loc[pt_id].tolist(), dtype=torch.uint8)
         record = ((graphs, drugs), response)
         file_out = os.path.join(output_dir, f"{pt_id}.pt")
         torch.save(record, file_out)
