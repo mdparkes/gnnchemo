@@ -109,7 +109,7 @@ class IndividualPathsMPNN(torch.nn.Module):
         return x, batch, (perm1, perm2, perm3)
 
 
-class NeuralNetworkMTLR(torch.nn.Module):
+class MLPOutputBlock(torch.nn.Module):
 
     def __init__(self, in_features: int) -> None:
 
