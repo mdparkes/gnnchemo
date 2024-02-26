@@ -161,7 +161,7 @@ def main():
     # Records are Tuple[Tuple[List[graph], drugs], response]
     for j, pt_id, graphs in enumerate(tmp_data_dict.items()):
         drugs = torch.tensor(drugs_administered.loc[pt_id].tolist(), dtype=torch.float32)
-        response = torch.tensor(drug_response.iat[j], dtype=torch.uint8)
+        response = torch.tensor(drug_response.iat[j], dtype=torch.float32)
         record = ((graphs, drugs), response)
         file_out = os.path.join(output_dir, f"{pt_id}.pt")
         torch.save(record, file_out)

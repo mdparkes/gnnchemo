@@ -93,7 +93,7 @@ def main():
     for j, pt_id in tqdm(enumerate(exprs_ss.index), total=len(exprs_ss), desc="Writing MLP input data to disk"):
         exprs_tensor = torch.tensor(exprs_ss.loc[pt_id].tolist(), dtype=torch.float32)
         drugs_tensor = torch.tensor(drugs_administered.loc[pt_id].tolist(), dtype=torch.float32)
-        response_tensor = torch.tensor(drug_response.iat[j], dtype=torch.uint8)
+        response_tensor = torch.tensor(drug_response.iat[j], dtype=torch.float32)
         file_out = os.path.join(path_out, f"{pt_id}.pt")
         torch.save(obj=(exprs_tensor, drugs_tensor, response_tensor), f=file_out)
 
