@@ -162,12 +162,12 @@ def train_loop(
                 predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model, aux_feat_tensor)
             else:
                 predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model)
-            predictions = torch.reshape(predictions, (current_batch_size, -1))
             # Calculate training loss for the batch
             # Positive responders represent ~ 76% of the dataset. Rescale the losses accordingly.
-            pos_wt = torch.ones(size=[current_batch_size], dtype=torch.float32)
-            neg_wt = torch.full(size=[current_batch_size], fill_value=759 / 242, dtype=torch.float32)
+            pos_wt = torch.ones(size=[current_batch_size,1], dtype=torch.float32)
+            neg_wt = torch.full(size=[current_batch_size,1], fill_value=759 / 242, dtype=torch.float32)
             rescaling_weights = torch.where(targets.bool(), pos_wt, neg_wt)
+            rescaling_weights = rescaling_weights.reshape((current_batch_size, 1))
             loss = binary_cross_entropy(predictions, targets, weight=rescaling_weights, reduction="sum")
             epoch_train_loss += loss  # Running total of this epoch's training loss
             loss /= current_batch_size  # Per-patient loss for the current batch
@@ -195,9 +195,10 @@ def train_loop(
                 else:
                     predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model)
                 predictions = torch.reshape(predictions, (current_batch_size, -1))
-                pos_wt = torch.ones(size=[current_batch_size], dtype=torch.float32)
-                neg_wt = torch.full(size=[current_batch_size], fill_value=759 / 242, dtype=torch.float32)
+                pos_wt = torch.ones(size=[current_batch_size, 1], dtype=torch.float32)
+                neg_wt = torch.full(size=[current_batch_size, 1], fill_value=759 / 242, dtype=torch.float32)
                 rescaling_weights = torch.where(targets.bool(), pos_wt, neg_wt)
+                rescaling_weights = rescaling_weights.reshape((current_batch_size, 1))
                 loss = binary_cross_entropy(predictions, targets, weight=rescaling_weights, reduction="sum")
                 epoch_val_loss += loss
         epoch_val_loss /= samples_processed
@@ -314,7 +315,7 @@ def main():
         train_indices=train_idx,
         val_indices=val_idx,
         batch_size=batch_size,
-        use_drug_input=use_drug_input
+        use_aux_feats=use_drug_input
     )
     #  Adjust `resources={"cpu": x}` based on available cores to optimize performance. This is the number of
     #  cores that each trial will use. For example, if 12 cores are available and `resources={"cpu": 2}`, six trials
