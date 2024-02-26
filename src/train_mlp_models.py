@@ -1,5 +1,13 @@
+"""
+Note:
+    Uses sagpool selections from GNNs with non-relational unmerged graphs -- hardcoded behaviour.
+
+"""
+
 import argparse
+import io
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import pickle
 import seaborn as sns
@@ -8,77 +16,65 @@ import torch
 import torchmetrics
 
 from filelock import FileLock
+from matplotlib.ticker import MaxNLocator
 from ray import tune, train, init
 from ray.train import Checkpoint
 from ray.train.torch import TorchTrainer, prepare_model, prepare_data_loader
+from torch import Tensor
 from torch.nn.functional import binary_cross_entropy
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DistributedSampler
 from torch_geometric.loader import DataLoader
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Optional, Sequence, Union
 
-from dataset_definitions import CancerGraphDataset
-from models import MLPOutputBlock, IndividualPathsMPNN
+from dataset_definitions import CancerDataset
+from models import MLPOutputBlock, SparseMLP
 from utilities import maybe_create_directories
 
 
-def load_dataset(graph_dir: str) -> CancerGraphDataset:
+def load_dataset(root: str, files=None) -> CancerDataset:
+    """
+    Loads a dataset from serialized data on disk.
+
+    :param root: The path to the directory where the data are stored. Should contain a "raw" subdirectory containing
+    the serialized data files.
+    :param files: A collection of files to use from the 'raw' subdirectory of `root`
+    :return: A CancerDataset
+    """
+
     # If merging all pathways into a single large graph, the standardization occurs over all genes in all pathways.
     # If feeding one pathway graph through the NN at a time, standardization is isolated to the pathway's genes.
-    graph_files = sorted(os.listdir(os.path.join(graph_dir, "raw")))  # Raw graph Data object files
+    data_files = sorted(os.listdir(os.path.join(root, "raw")))  # Raw graph Data object files
+    if files is not None:
+        data_files = [file for file in data_files if file in files]
+    # transformation = StandardizeFeatures(correction=1)  # No transform
     # Use FileLock to make DataLoader threadsafe
     with FileLock(os.path.expanduser("~/.data.lock")):
-        dataset = CancerGraphDataset(root=graph_dir, data_files=graph_files)
+        dataset = CancerDataset(root=root, data_files=data_files)  # No transform
     return dataset
-
-
-def gnn_forward_pass(data_batch_list, mp_modules, model, aux_features=None):
-    """
-    Perform a forward pass through the GNN modules and model.
-
-    :param data_batch_list: A list of DataBatch or HeteroDataBatch objects, one per input graph, each representing a
-    batch of biopsies.
-    :param mp_modules: A ModuleList with the message passing module for each input graph
-    :param aux_features: A tensor of auxiliary features to use as input. If supplied, these will be concatenated with
-    the results of forward passes of graphs through mp_modules. The concatenation is used as input to the final MLP
-    block that outputs predictions.
-    :param model: The neural network that takes a vector of graph scores as input and returns a target probability
-    :return: Predictions for a batch of biopsies and a list of tuples of indices of nodes retained by each SAGPool
-    layer for each input graph with a batch of biopsies.
-    """
-    pathway_scores = list()  # Populated with a list of [n_pathways] shape [batch_size, 1] tensors of pathway scores
-    nodes_retained_list = list()
-    for i, graph in enumerate(data_batch_list):
-        score, _, nodes_retained = mp_modules[i](graph.x, graph.edge_index, graph.batch)
-        pathway_scores.append(score)
-        nodes_retained_list.append(nodes_retained)
-    inputs = torch.cat(pathway_scores, dim=-1)  # shape [batch_size, n_pathways]
-    if aux_features is not None:
-        inputs = torch.cat([inputs, aux_features], dim=-1)  # shape [batch_size, n_pathways + n_aux_features]
-    predictions = model(inputs)
-    return predictions, nodes_retained_list
 
 
 def train_loop(
         config: Dict[str, Any],
         *,
         data_dir: str,
-        train_indices: Sequence[int],
-        val_indices: Sequence[int],
+        train_names: Sequence[str],
+        val_names: Sequence[str],
         worker_batch_size: int,
+        mask: Tensor,
+        feature_indices: Optional[Union[Sequence[int], None]],
         use_aux_feats: bool
 ) -> None:
     # worker_batch_size is the size of the batch subset handled by the worker. The global batch size is calculated as
     # the number of workers times the worker batch size. For example, if the global batch size is 50 and there are 5
     # workers, worker_batch_size should be 10.
-    
+
     epochs = 100
 
     # region Dataset and DataLoaders
     # Create training and validation fold Dataset objects
-    dataset = load_dataset(data_dir)
-    train_dataset = dataset[train_indices]
-    val_dataset = dataset[val_indices]
+    train_dataset = load_dataset(data_dir, train_names)
+    val_dataset = load_dataset(data_dir, val_names)
     # Create samplers that partition stratified CV folds into disjoint random batches
     train_sampler = DistributedSampler(train_dataset, shuffle=True, seed=423, drop_last=False)
     val_sampler = DistributedSampler(val_dataset,  shuffle=True, seed=423, drop_last=False)
@@ -88,27 +84,27 @@ def train_loop(
     val_dataloader = prepare_data_loader(val_dataloader)
     # endregion Dataset and DataLoaders
 
+    # Restrict the mask to input genes (columns) that will be used by the sparse MLP
+    if feature_indices is not None:
+        mask = mask[:, feature_indices]
+
     # region Initialize models and optimizer
-    n_submodules = len(dataset[0][0][0])  # Number of different pathways
     if use_aux_feats:
-        n_aux_feats = len(dataset[0][0][1])  # Number of drug categories
-        total_feats = n_submodules + n_aux_feats
+        n_aux_feats = len(train_dataset[0][1])  # Number of drug categories
+        total_feats = mask.shape[0] + n_aux_feats
     else:
-        total_feats = n_submodules
-    mp_modules = torch.nn.ModuleList()
-    for i in range(n_submodules):  # Initialize modules for non-relational graphs
-        num_nodes = int(dataset[0][0][0][i].x.size(0))  # Number of nodes in the pathway graph
-        mp_mod = IndividualPathsMPNN(message_passing="graphsage", use_sagpool=True, ratio=0.7, num_nodes=num_nodes)
-        mp_mod = DistributedDataParallel(mp_mod)
-        mp_mod = prepare_model(mp_mod)
-        mp_modules.append(mp_mod)
+        total_feats = mask.shape[0]
+
+    sparse_layer = SparseMLP(mask)
+    sparse_layer = DistributedDataParallel(sparse_layer)
+    sparse_layer = prepare_model(sparse_layer)
 
     model = MLPOutputBlock(in_features=total_feats)
     model = DistributedDataParallel(model)
     model = prepare_model(model)
 
     optimizer = torch.optim.Adam([
-        {"params": mp_modules.parameters()},
+        {"params": sparse_layer.parameters()},
         {"params": model.parameters()}
     ], lr=config["lr"], weight_decay=config["weight_decay"])
     # endregion Initialize models and optimizer
@@ -117,9 +113,9 @@ def train_loop(
     loaded_checkpoint = train.get_checkpoint()
     if loaded_checkpoint:
         with loaded_checkpoint.as_directory() as checkpoint_dir:
-            ckpt = torch.load(os.path.join(checkpoint_dir, f"checkpoint.pt"))
-            start_epoch, mp_modules_state, model_state, optimizer_state = ckpt
-            mp_modules.load_state_dict(mp_modules_state)
+            ckpt = torch.load(os.path.join(checkpoint_dir, f"checkpoint_fold.pt"))
+            start_epoch, sparse_layer_state, model_state, optimizer_state = ckpt
+            sparse_layer.load_state_dict(sparse_layer_state)
             model.load_state_dict(model_state)
             optimizer.load_state_dict(optimizer_state)
     else:
@@ -137,24 +133,22 @@ def train_loop(
         val_sampler.set_epoch(t)
 
         # region Train
-        mp_modules.train()
+        sparse_layer.train()
         model.train()
         epoch_train_loss = 0.
         n_batches = len(train_dataloader)
         for loaded_data in train_dataloader:
-            (data_batch_list, aux_feat_tensor), targets = loaded_data
-            current_batch_size = len(data_batch_list[0])
-            # data_batch_list is a list of m DataBatch objects, where m is the number of graphs fed through the GNN
-            # for a single patient. Each DataBatch object represents a batch of a particular graph.
-            # aux_feat_tensor is a [current_batch_size, n_aux_feat] tensor of auxiliary features (drugs administered).
-            # targets is a [current_batch_size, ] tensor of prediction target labels
+            feature_tensor, aux_feat_tensor, targets = loaded_data
+            if feature_indices is not None:
+                # Only use the selected genes at the specified indices
+                feature_tensor = feature_tensor[:, feature_indices]
+            current_batch_size = feature_tensor.shape[0]
             targets = torch.reshape(targets, (current_batch_size, -1))
+            inputs = sparse_layer(feature_tensor)
             if use_aux_feats:
-                predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model, aux_feat_tensor)
-            else:
-                predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model)
-            # Calculate training loss for the batch
-            # Positive responders represent ~ 76% of the dataset. Rescale the losses accordingly.
+                inputs = torch.cat([inputs, aux_feat_tensor], dim=-1)
+            predictions = model(inputs)
+            predictions = torch.reshape(predictions, (current_batch_size, -1))
             pos_wt = torch.ones(size=[current_batch_size, 1], dtype=torch.float32)
             neg_wt = torch.full(size=[current_batch_size, 1], fill_value=759 / 242, dtype=torch.float32)
             rescaling_weights = torch.where(targets.bool(), pos_wt, neg_wt)
@@ -174,29 +168,28 @@ def train_loop(
         # endregion Train
 
         # region Evaluate
-        mp_modules.eval()
+        sparse_layer.eval()
         model.eval()
         epoch_val_loss = 0.
         n_batches = len(val_dataloader)
-        # samples_processed = 0
         with torch.no_grad():
             for loaded_data in val_dataloader:
-                (data_batch_list, aux_feat_tensor), targets = loaded_data
-                current_batch_size = len(data_batch_list[0])
-
+                feature_tensor, aux_feat_tensor, targets = loaded_data
+                if feature_indices is not None:
+                    # Only use the selected genes at the specified indices
+                    feature_tensor = feature_tensor[:, feature_indices]
+                current_batch_size = feature_tensor.shape[0]
                 targets = torch.reshape(targets, (current_batch_size, -1))
-
+                inputs = sparse_layer(feature_tensor)
                 if use_aux_feats:
-                    predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model, aux_feat_tensor)
-                else:
-                    predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model)
+                    inputs = torch.cat([inputs, aux_feat_tensor], dim=-1)
+                predictions = model(inputs)
                 predictions = torch.reshape(predictions, (current_batch_size, -1))
-
                 pos_wt = torch.ones(size=[current_batch_size, 1], dtype=torch.float32)
                 neg_wt = torch.full(size=[current_batch_size, 1], fill_value=759 / 242, dtype=torch.float32)
                 rescaling_weights = torch.where(targets.bool(), pos_wt, neg_wt)
                 rescaling_weights = rescaling_weights.reshape((current_batch_size, 1))
-                wt = current_batch_size / worker_batch_size  # Down-weights per-patient losses from undersized batches
+                wt = current_batch_size / worker_batch_size  # Down-weights the per-patient losses from undersized batches
                 loss = wt * binary_cross_entropy(predictions, targets, weight=rescaling_weights, reduction="mean")
                 epoch_val_loss += loss  # Running total of this epoch's mean per-patient validation minibatch losses
 
@@ -209,8 +202,8 @@ def train_loop(
         # Checkpointing
         with tempfile.TemporaryDirectory() as tmp_ckpt_dir:
             torch.save(
-                (t, mp_modules.state_dict(), model.state_dict(), optimizer.state_dict()),
-                os.path.join(tmp_ckpt_dir, f"checkpoint.pt")
+                (t, sparse_layer.state_dict(), model.state_dict(), optimizer.state_dict()),
+                os.path.join(tmp_ckpt_dir, "checkpoint.pt")
             )
             metrics = {
                 "training_loss": float(aggregated_train_loss),
@@ -229,7 +222,7 @@ def train_loop(
 def main():
     # region Parse args
     parser = argparse.ArgumentParser(
-        description="Train a GNN model of survival"
+        description="Train an MLP model of survival with cross-validation"
     )
     parser.add_argument(
         "-d", "--data_dir",
@@ -244,7 +237,7 @@ def main():
     parser.add_argument(
         "--use_drug_input",
         help="If set, use drug types administered as auxiliary features for input into the MLP block that outputs the"
-        "final prediction of treatment response",
+             "final prediction of treatment response",
         action="store_true"
     )
     parser.add_argument(
@@ -264,21 +257,22 @@ def main():
     # args = {
     #     "data_dir": "data",
     #     "output_dir": "test_expt",
+    #     "use_drug_input": True,
     #     "batch_size": 48,
-    #     "num_workers": 5
+    #     "num_workers": 8,
     # }
 
     # region Define important values
     data_dir = args["data_dir"]  # e.g. ./data
     output_dir = args["output_dir"]  # e.g. ./experiment6
-    model_type = "gnn"
-    use_drug_input = args["use_drug_input"]
+    model_type = "mlp"
+    use_drug_input = True if args["use_drug_input"] else False
     batch_size = args["batch_size"]
     num_workers = args["num_workers"]
     # endregion Define important values
 
     # region Directories
-    graph_data_dir = os.path.join(data_dir, "graphs")
+    input_data_dir = os.path.join(data_dir, "mlp_inputs")
     model_dir = os.path.join(output_dir, "models", model_type)
     ckpt_dir = os.path.join(output_dir, "checkpoints", model_type)
     export_dir = os.path.join(output_dir, "exports", model_type)
@@ -288,37 +282,55 @@ def main():
     # endregion Directories
 
     # region Files to read/write
-    graph_data_files = sorted(os.listdir(os.path.join(data_dir, "graphs", "raw")))  # Raw graph Data object files
-    feature_names_file = os.path.join(data_dir, "gnn_feature_names.pkl")  # HSA/ENTREZ IDs of input genes
+    input_data_files = sorted(os.listdir(os.path.join(input_data_dir, "raw")))  # Raw graph Data object files
+    # Weight mask for first hidden layer of MLP
+    mask_matrix_file = os.path.join(data_dir, "mlp_mask.pt")
+    feature_names_file = os.path.join(data_dir, f"{model_type}_feature_names.pkl")  # HSA/ENTREZ IDs of input genes
+    pathway_names_file = os.path.join(data_dir, f"{model_type}_pathway_names.npy")  # HSA IDs of pathways
     hp_file = os.path.join(hp_dir, f"{model_type}_hyperparameters.pkl")
     # endregion Files to read/write
 
-    # Load lists that name the biopsies in each cross validation partition
-    with open(os.path.join(data_dir, "train_test_split_names.pkl"), "rb") as file_in:
-        # A list of one tuple per CV fold: (train_names, test_names)
-        train_val_test_names = pickle.load(file_in)
-    train_names, _, test_names = train_val_test_names
-    # Get the indices of the current CV fold's raw Data files in the file list
-    train_idx = [graph_data_files.index(name) for name in train_names]
-    test_idx = [graph_data_files.index(name) for name in test_names]
-    # Load hyperparameters
+    # Load feature names in the order they appear in the unfiltered input to the SparseMLP
+    with open(feature_names_file, "rb") as file_in:
+        all_feature_names = pickle.load(file_in)
+
+    # Load weight mask for SparseMLP Module
+    with open(mask_matrix_file, "rb") as file_in:
+        buffer = io.BytesIO(file_in.read())
+    mlp_mask_matrix = torch.load(buffer)
+
+    # Load pathway names
+    pathway_names = np.load(pathway_names_file, allow_pickle=True)
+    assert (len(pathway_names) == mlp_mask_matrix.shape[0])
+
+    # Load tuned MLP hyperparameters
     with open(hp_file, "rb") as file_in:
         hp_dict = pickle.load(file_in)
-    # Load dataset
-    ds = load_dataset(graph_data_dir)
 
-    metrics_df_list = []  # Store the results' metrics dataframes in this list
+    # Get indices of train/validation/test biopsies in the dataset and load dataset
+    with open(os.path.join(data_dir, "train_test_split_names.pkl"), "rb") as file_in:
+        train_val_test_names = pickle.load(file_in)
+    train_names, _, test_names = train_val_test_names
+    train_idx = [input_data_files.index(name) for name in train_names]
+    test_idx = [input_data_files.index(name) for name in test_names]
+    ds = load_dataset(input_data_dir)
+
+    metrics_df_list = []
+
+    # Features to use
+    features_used_idx = None  # When this is passed to train_loop `features` param, all features will be used
 
     storage_path = os.path.abspath(ckpt_dir)
-    expt_name = (f"final_model-type={model_type}_drug-input={use_drug_input}")
+    expt_name = f"final_model-type={model_type}_drug-input={use_drug_input}"
     expt_storage_path = os.path.join(storage_path, expt_name)
 
     init(log_to_driver=False, ignore_reinit_error=True)  # should suppress info messages to stdout but allow logging
 
     worker_bsize = int(batch_size / num_workers)
     train_model = tune.with_parameters(
-        train_loop, data_dir=graph_data_dir, train_indices=train_idx, val_indices=test_idx,
-        worker_batch_size=worker_bsize, use_aux_feats=use_drug_input
+        train_loop, data_dir=input_data_dir, train_names=train_names, val_names=test_names,
+        worker_batch_size=worker_bsize, mask=mlp_mask_matrix, feature_indices=features_used_idx,
+        use_aux_feats=use_drug_input
     )
 
     if TorchTrainer.can_restore(expt_storage_path):
@@ -360,7 +372,7 @@ def main():
                  linestyle="solid", ax=ax)
     sns.lineplot(x="training_iteration", y="training_loss", label="Training Dataset", data=plt_df,
                  linestyle="dashed", ax=ax)
-    ax.set_title("GNN train and test set losses")
+    ax.set_title(f"MLP train and test set losses")
     ax.set_xlabel("Training Iteration")
     ax.set_ylabel("Loss (Binary Cross Entropy)")
     ax.legend(loc="center left", bbox_to_anchor=(1, 1))

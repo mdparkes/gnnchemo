@@ -21,12 +21,12 @@ class CancerDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data_files)
 
-    def __getitem__(self, idx) -> Tuple[Tensor, Tuple[float, int]]:
+    def __getitem__(self, idx) -> Tuple[Tensor, Tensor, Tensor]:
         raw_file_path = os.path.join(self.root, "raw", self.data_files[idx])
-        exprs_tensor, label_tuple = torch.load(raw_file_path)
+        exprs_tensor, aux_feats, label_tuple = torch.load(raw_file_path)
         if self.transform:
             exprs_tensor = self.transform(exprs_tensor)
-        return exprs_tensor, label_tuple
+        return exprs_tensor, aux_feats, label_tuple
 
 
 class CancerGraphDataset(GraphDataset):
