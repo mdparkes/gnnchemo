@@ -360,7 +360,7 @@ def main():
                  linestyle="solid", ax=ax)
     sns.lineplot(x="training_iteration", y="training_loss", label="Training Dataset", data=plt_df,
                  linestyle="dashed", ax=ax)
-    ax.set_title("Train and test set losses")
+    ax.set_title("GNN train and test set losses")
     ax.set_xlabel("Training Iteration")
     ax.set_ylabel("Loss (Binary Cross Entropy)")
     ax.legend(loc="center left", bbox_to_anchor=(1, 1))
