@@ -1,12 +1,3 @@
-"""
-Perform hyperparameter tuning using a fold of data that is exclusively reserved for this purpose.
-
-Hyperparameter tuning is only performed with models that do not use feature selection. The tuned hyperparameters will
-be shared with the models that use feature selection. For the purpose of tuning, GNN models can differ in
-the type of database the graphs were derived from (KEGG/BRITE, Reactome) and whether the edges are strictly
-directed or both directed and undirected (the latter only applies to reactome graphs).
-"""
-
 import argparse
 import os
 import pickle
@@ -164,8 +155,8 @@ def train_loop(
                 predictions, _ = gnn_forward_pass(data_batch_list, mp_modules, model)
             # Calculate training loss for the batch
             # Positive responders represent ~ 76% of the dataset. Rescale the losses accordingly.
-            pos_wt = torch.ones(size=[current_batch_size,1], dtype=torch.float32)
-            neg_wt = torch.full(size=[current_batch_size,1], fill_value=759 / 242, dtype=torch.float32)
+            pos_wt = torch.ones(size=[current_batch_size, 1], dtype=torch.float32)
+            neg_wt = torch.full(size=[current_batch_size, 1], fill_value=759 / 242, dtype=torch.float32)
             rescaling_weights = torch.where(targets.bool(), pos_wt, neg_wt)
             rescaling_weights = rescaling_weights.reshape((current_batch_size, 1))
             loss = binary_cross_entropy(predictions, targets, weight=rescaling_weights, reduction="sum")
@@ -259,14 +250,6 @@ def main():
     args = vars(parser.parse_args())
     # endregion Parse args
 
-    # # For interactive debugging
-    # args = {
-    #     "data_dir": "data",
-    #     "output_dir": "test_expt",
-    #     "use_drug_input": True,
-    #     "batch_size": 48,
-    # }
-
     # region Define important values
     data_dir = args["data_dir"]  # e.g. ./data
     output_dir = args["output_dir"]  # e.g. ./experiment6
@@ -287,7 +270,6 @@ def main():
 
     # region Files to read/write
     graph_data_files = sorted(os.listdir(os.path.join(data_dir, "graphs", "raw")))  # Raw graph Data object files
-    feature_names_file = os.path.join(data_dir, "gnn_feature_names.pkl")  # HSA/ENTREZ IDs of input genes
     hp_file = os.path.join(hp_dir, f"{model_type}_hyperparameters.pkl")
     # endregion Files to read/write
 

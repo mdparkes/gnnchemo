@@ -260,14 +260,6 @@ def main():
     args = vars(parser.parse_args())
     # endregion Parse args
 
-    # # For interactive debugging
-    # args = {
-    #     "data_dir": "data",
-    #     "output_dir": "test_expt",
-    #     "batch_size": 48,
-    #     "num_workers": 5
-    # }
-
     # region Define important values
     data_dir = args["data_dir"]  # e.g. ./data
     output_dir = args["output_dir"]  # e.g. ./experiment6
@@ -289,7 +281,6 @@ def main():
 
     # region Files to read/write
     graph_data_files = sorted(os.listdir(os.path.join(data_dir, "graphs", "raw")))  # Raw graph Data object files
-    feature_names_file = os.path.join(data_dir, "gnn_feature_names.pkl")  # HSA/ENTREZ IDs of input genes
     hp_file = os.path.join(hp_dir, f"{model_type}_hyperparameters.pkl")
     # endregion Files to read/write
 
@@ -304,8 +295,6 @@ def main():
     # Load hyperparameters
     with open(hp_file, "rb") as file_in:
         hp_dict = pickle.load(file_in)
-    # Load dataset
-    ds = load_dataset(graph_data_dir)
 
     metrics_df_list = []  # Store the results' metrics dataframes in this list
 

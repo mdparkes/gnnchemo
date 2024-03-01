@@ -4,7 +4,6 @@ import itertools
 import numpy as np
 import os
 import pandas as pd
-import re
 import torch
 
 from keggpathwaygraphs import biopathgraph as bpg

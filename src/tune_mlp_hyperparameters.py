@@ -1,16 +1,3 @@
-"""
-Perform hyperparameter tuning using a fold of data that is exclusively reserved for this purpose.
-
-Hyperparameter tuning is only performed with models that do not use feature selection. The tuned hyperparameters will
-be shared with the models that use feature selection. For the purpose of tuning, MLP models can differ in
-the type of database the pathways were derived from (KEGG/BRITE, Reactome) and whether the counterpart GNN was over
-graphs that had only directed edges or both directed and undirected edges. If a GNN only used graphs with directed
-edges, its node set only contains genes that participate in directed edges. If a GNN used both directed and undirected
-edges, its node set contains genes that participate in either directed or undirected edges. In both styles of GNN,
-genes that do not participate in any edge are absent from the node set. Since each MLP counterpart to a GNN must have
-exactly the same genes as input, the MLP input depends on the directedness of the graphs passed through the GNN.
-"""
-
 import argparse
 import io
 import numpy as np
@@ -209,14 +196,6 @@ def main():
     )
     args = vars(parser.parse_args())
     # endregion Parse args
-    #
-    # # For interactive debugging
-    # args = {
-    #     "data_dir": "data",
-    #     "output_dir": "test_expt",
-    #     "use_drug_input": True,
-    #     "batch_size": 48
-    # }
 
     # region Define important values
     data_dir = args["data_dir"]  # e.g. ./data
@@ -240,8 +219,7 @@ def main():
     input_data_files = sorted(os.listdir(os.path.join(input_data_dir, "raw")))  # Raw graph Data object files
     # Weight mask for first hidden layer of MLP
     mask_matrix_file = os.path.join(data_dir, "mlp_mask.pt")
-    feature_names_file = os.path.join(data_dir, f"{model_type}_feature_names.pkl")  # HSA/ENTREZ IDs of input genes
-    pathway_names_file = os.path.join(data_dir, f"{model_type}_pathway_names.npy") # HSA IDs of pathways
+    pathway_names_file = os.path.join(data_dir, f"{model_type}_pathway_names.npy")  # HSA IDs of pathways
     hp_file = os.path.join(hp_dir, f"{model_type}_hyperparameters.pkl")
     # endregion Files to read/write
 

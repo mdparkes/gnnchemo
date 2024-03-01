@@ -1,9 +1,3 @@
-"""
-Note:
-    Uses sagpool selections from GNNs with non-relational unmerged graphs -- hardcoded behaviour.
-
-"""
-
 import argparse
 import io
 import matplotlib.pyplot as plt
@@ -16,7 +10,6 @@ import torch
 import torchmetrics
 
 from filelock import FileLock
-from matplotlib.ticker import MaxNLocator
 from ray import tune, train, init
 from ray.train import Checkpoint
 from ray.train.torch import TorchTrainer, prepare_model, prepare_data_loader
@@ -189,7 +182,7 @@ def train_loop(
                 neg_wt = torch.full(size=[current_batch_size, 1], fill_value=759 / 242, dtype=torch.float32)
                 rescaling_weights = torch.where(targets.bool(), pos_wt, neg_wt)
                 rescaling_weights = rescaling_weights.reshape((current_batch_size, 1))
-                wt = current_batch_size / worker_batch_size  # Down-weights the per-patient losses from undersized batches
+                wt = current_batch_size / worker_batch_size  # Down-weights the losses from undersized batches
                 loss = wt * binary_cross_entropy(predictions, targets, weight=rescaling_weights, reduction="mean")
                 epoch_val_loss += loss  # Running total of this epoch's mean per-patient validation minibatch losses
 
@@ -253,15 +246,6 @@ def main():
     args = vars(parser.parse_args())
     # endregion Parse args
 
-    # # For interactive debugging
-    # args = {
-    #     "data_dir": "data",
-    #     "output_dir": "test_expt",
-    #     "use_drug_input": True,
-    #     "batch_size": 48,
-    #     "num_workers": 8,
-    # }
-
     # region Define important values
     data_dir = args["data_dir"]  # e.g. ./data
     output_dir = args["output_dir"]  # e.g. ./experiment6
@@ -282,17 +266,11 @@ def main():
     # endregion Directories
 
     # region Files to read/write
-    input_data_files = sorted(os.listdir(os.path.join(input_data_dir, "raw")))  # Raw graph Data object files
     # Weight mask for first hidden layer of MLP
     mask_matrix_file = os.path.join(data_dir, "mlp_mask.pt")
-    feature_names_file = os.path.join(data_dir, f"{model_type}_feature_names.pkl")  # HSA/ENTREZ IDs of input genes
     pathway_names_file = os.path.join(data_dir, f"{model_type}_pathway_names.npy")  # HSA IDs of pathways
     hp_file = os.path.join(hp_dir, f"{model_type}_hyperparameters.pkl")
     # endregion Files to read/write
-
-    # Load feature names in the order they appear in the unfiltered input to the SparseMLP
-    with open(feature_names_file, "rb") as file_in:
-        all_feature_names = pickle.load(file_in)
 
     # Load weight mask for SparseMLP Module
     with open(mask_matrix_file, "rb") as file_in:
@@ -311,9 +289,6 @@ def main():
     with open(os.path.join(data_dir, "train_test_split_names.pkl"), "rb") as file_in:
         train_val_test_names = pickle.load(file_in)
     train_names, _, test_names = train_val_test_names
-    train_idx = [input_data_files.index(name) for name in train_names]
-    test_idx = [input_data_files.index(name) for name in test_names]
-    ds = load_dataset(input_data_dir)
 
     metrics_df_list = []
 

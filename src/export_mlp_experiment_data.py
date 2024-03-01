@@ -66,14 +66,6 @@ def main():
         type=int
     )
     args = vars(parser.parse_args())
-
-    # # For interactive debugging
-    # args = {
-    #     "data_dir": "Users/pr3/Projects/gnnchemo/data",
-    #     "output_dir": "Users/pr3/Projects/gnnchemo/test_expt",
-    #     "use_drug_input": True,
-    #     "batch_size": 48
-    # }
     # endregion Parse args
 
     # region Define important values
@@ -93,20 +85,14 @@ def main():
     # endregion Directories
 
     # region Files to read
-    input_data_files = sorted(os.listdir(os.path.join(input_data_dir, "raw")))  # Raw graph Data object files
     model_file = os.path.join(model_dir, f"final_model-type={model_type}_drug-input={use_drug_input}.pt")
     pathway_names_file = os.path.join(data_dir, f"{model_type}_pathway_names.npy")
-    feature_names_file = os.path.join(data_dir, f"{model_type}_feature_names.pkl")
     mask_matrix_file = os.path.join(data_dir, "mlp_mask.pt")
     # endregion Files to read
 
     # region Load data
     # Load pathway name in the order they appear in the first hidden layer of the MLP
     pathway_names = np.load(pathway_names_file, allow_pickle=True)
-
-    # Load feature names in the order they appear in the unfiltered input to the SparseMLP
-    with open(feature_names_file, "rb") as file_in:
-        all_feature_names = pickle.load(file_in)
 
     # Load weight mask for SparseMLP Module
     with open(mask_matrix_file, "rb") as file_in:
@@ -245,4 +231,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

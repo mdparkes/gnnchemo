@@ -30,8 +30,7 @@ def mp_module_forward_pass(data_batch_list, mp_modules):
     Perform a forward pass through the GNN message passing modules. Returns a Tensor of pathway scores and a list of
     graph node indices that were retained after each SAGPool operation.
 
-    :param data_batch_list: A list of DataBatch or HeteroDataBatch objects, one per input graph, each representing a
-    batch of biopsies.
+    :param data_batch_list: A list of DataBatch objects, one per input graph, each representing a batch of biopsies.
     :param mp_modules: A ModuleList with the message passing module for each input graph
     :return: A pathway scores Tensor for a batch of biopsies and a list of tuples of indices of nodes retained by each
     SAGPool layer for each input graph with a batch of biopsies.
@@ -73,14 +72,6 @@ def main():
         type=int
     )
     args = vars(parser.parse_args())
-
-    # # For interactive debugging
-    # args = {
-    #     "data_dir": "Users/pr3/Projects/gnnchemo/data",
-    #     "output_dir": "Users/pr3/Projects/gnnchemo/test_expt",
-    #     "use_drug_input": True,
-    #     "batch_size": 48
-    # }
     # endregion Parse args
 
     # region Define important values
