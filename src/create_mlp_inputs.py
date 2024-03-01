@@ -31,13 +31,13 @@ def main():
     )
     parser.add_argument(
         "-d", "--drug_file",
-        help="The path to the csv file containing the clinical data",
-        default="data/tcga_clin.csv"
+        help="The path to the csv file containing the drug data",
+        default="data/processed_drug_df.csv"
     )
     parser.add_argument(
         "-o", "--output_dir",
-        help="The path to the directory where the Data objects will be written. For each cancer type passed as an "
-             "argument to --cancer_types, graph Data objects will be written to ./[output_dir]/[cancer_type]/graphs.",
+        help="The path to the directory where the Data objects will be written. Graph Data objects will be written to "
+             "./[output_dir]/mlp_inputs.",
         type=str
     )
     args = vars(parser.parse_args())
