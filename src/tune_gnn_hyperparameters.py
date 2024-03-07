@@ -251,8 +251,8 @@ def main():
     # endregion Parse args
 
     # region Define important values
-    data_dir = args["data_dir"]  # e.g. ./data
-    output_dir = args["output_dir"]  # e.g. ./experiment6
+    data_dir = os.path.abspath(args["data_dir"])  # e.g. ./data
+    output_dir = os.path.abspath(args["output_dir"])  # e.g. ./experiment6
     model_type = "gnn"
     use_drug_input = True if args["use_drug_input"] else False  # If False, only use pathway scores from GNNs as input
     batch_size = args["batch_size"]

@@ -190,7 +190,12 @@ def main():
             test_predictions.append(predictions)
             test_labels.append(targets)
 
-        # region Export data
+    # region Export data
+    if use_drug_input:
+        print(f"Exporting results from {model_type} models with drug inputs")
+    else:
+        print(f"Exporting results from {model_type} models without drug inputs")
+
     train_pathway_scores = torch.cat(train_pathway_scores, dim=0).numpy()
     test_pathway_scores = torch.cat(test_pathway_scores, dim=0).numpy()
 

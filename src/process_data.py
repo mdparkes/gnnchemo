@@ -1,6 +1,5 @@
 import argparse
 import numpy as np
-import os
 import pandas as pd
 import re
 
@@ -64,9 +63,6 @@ def main():
     exprs_data.to_csv(exprs_path_out)
     clin_data.to_csv(clin_path, index_label="aliquot_submitter_id")
     print("Done", flush=True)
-
-    # Remove the gene expression tsv file
-    os.unlink(exprs_path_in)
 
 
 if __name__ == "__main__":

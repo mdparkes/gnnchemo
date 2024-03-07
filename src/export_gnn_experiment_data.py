@@ -121,7 +121,7 @@ def main():
     saved_model_objects = torch.load(model_file)
     mp_modules_state, model_state, _ = saved_model_objects
 
-    # Edit the sparse layer state dict keys
+    # Edit state dict keys
     new_mp_modules_state = OrderedDict()
     for key, val in mp_modules_state.items():
         key = re.sub(r"\bmodule\.", "", key)
@@ -129,7 +129,6 @@ def main():
     mp_modules_state = new_mp_modules_state
     del new_mp_modules_state
 
-    # Edit the neural network MTLR block state dict keys
     new_model_state = OrderedDict()
     for key, val in model_state.items():
         key = re.sub(r"\bmodule\.", "", key)
@@ -155,9 +154,6 @@ def main():
     model.load_state_dict(model_state)
 
     # Forward passes
-    # A forward pass through the model returns [batch_size, n_intervals] logits that express the log-probability
-    # that the event occurred in each interval. To get the cumulative survival probability distribution,
-    # exponentiate the logits,
     mp_modules.eval()
     model.eval()
     with torch.no_grad():
@@ -200,6 +196,11 @@ def main():
             test_labels.append(targets)
             
     # region Export data
+    if use_drug_input:
+        print(f"Exporting results from {model_type} models with drug inputs")
+    else:
+        print(f"Exporting results from {model_type} models without drug inputs")
+
     train_pathway_scores = torch.cat(train_pathway_scores, dim=0).numpy()
     test_pathway_scores = torch.cat(test_pathway_scores, dim=0).numpy()
 
