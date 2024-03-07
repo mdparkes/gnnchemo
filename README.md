@@ -129,12 +129,3 @@ The file `data/processed_drug_df.csv` contains the fully preprocessed drug data 
 `src/get_gdc_data.R` and `src/process_drug_df.R` are only included for reference and should not be run. Manual data 
 processing steps were performed between scraping the data with `src/get_gdc_data.R` and writing the final 
 preprocessed file with `src/process_drug_df.R`
-
-
-## Troubleshooting
-
-If conda is slow to solve the environment, try setting the channel priority to strict:
-
-```commandline
-conda config --set channel_priority strict
-```
